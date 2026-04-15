@@ -1,0 +1,25 @@
+# 忽略 Keil 编译产生的中间文件
+*.o
+*.d
+*.crf
+*.htm
+*.dep
+*.lnp
+*.map
+*.lst
+*.axf
+*.build_log.htm
+*.htm
+*.sct
+
+# 忽略个人设置文件
+*.uvguix.*
+*.uvoptx
+
+# 忽略整个文件夹
+Objects/
+Listings/
+DebugConfig/
+
+# 允许上传的文件
+!*.uvprojx
