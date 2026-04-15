@@ -20,12 +20,14 @@
 #include "main.h"
 #include "adc.h"
 #include "dma.h"
+#include "i2c.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "MPU6050.h"
 #include <stdio.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -48,13 +50,20 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+MPU6050 MM;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM2)
+  {
+	  MPU6050_Get_Angle(&MM);//(超低零点漂移)
+	  //MPU6050_Get_Angle_Plus(&MM);//四元素法
+  }
+}
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -87,7 +96,27 @@ int fputc(int ch, FILE *f)
 // 死区范围 (ADC值 0-4095, 中位2048)
 #define JOYSTICK_DEADZONE 150
 uint16_t adc_value[3]; // 存储 ADC 转换结果的数组
-float actual_vdda = 3.3f;
+float angles[2]; // 存储计算出的角度
+float actual_vdda = 3.3f; // 实际电压值，初始为默认值
+
+float ADCToAngle(uint16_t adc_angle)
+{
+    return adc_angle * 180.0f / 4095.0f * (actual_vdda / 3.3f); // 用算出来的实际电压去计算角度
+}
+
+// 输入 MPU6050 的姿态角，输出角度
+float MPUToAngle(float mpu_angle)
+{
+    // 补偿计算：以 90 度为中位进行反向补偿
+    // 假设 MPU 水平时角度为 0，那么舵机应处于 90 度（中位）
+    float target_angle = 90.0f - mpu_angle; 
+
+    // 限幅保护：防止舵机撞到机械限位（建议保留 10-170 度的安全区间）
+    if (target_angle < 10.0f) target_angle = 10.0f;
+    if (target_angle > 170.0f) target_angle = 170.0f;
+
+    return target_angle;
+}
 
 uint16_t AngleToCCR(float angle)
 {
@@ -103,10 +132,53 @@ uint16_t AngleToCCR(float angle)
     return (uint16_t)pulse_us;
 }
 
-float ADCtoAngle(uint16_t adc_angle)
+void Joystick_Control(uint16_t *adc_value, float *angles)
 {
-    return adc_angle * 180.0f / 4095.0f * (actual_vdda / 3.3f); // 用算出来的实际电压去计算角度
+    
+    // 1. 保护：防止 DMA 数据未到位导致除以 0 (使用内部 1.2V 参考通道)
+    // 假设 adc_value[2] 是内部参考电压通道
+    if (adc_value[2] > 100) 
+    {
+        actual_vdda = 1.2f * 4095.0f / (float)adc_value[2];
+    }
+    else 
+    {
+        actual_vdda = 3.3f; // 默认值
+    }
+
+    // 2. 获取原始 ADC 值
+    uint16_t raw_x = adc_value[0];
+    uint16_t raw_y = adc_value[1];
+
+    // 3. 死区处理 (防止中位抖动)
+    if (raw_x > (2048 - JOYSTICK_DEADZONE) && raw_x < (2048 + JOYSTICK_DEADZONE)) raw_x = 2048;
+    if (raw_y > (2048 - JOYSTICK_DEADZONE) && raw_y < (2048 + JOYSTICK_DEADZONE)) raw_y = 2048;
+
+    // 4. 转换为角度 (0-180度)
+    //0是yaw，1是pitch
+    angles[0] = ADCToAngle(raw_y); // Yaw--y
+    angles[1] = ADCToAngle(raw_x); // Pitch--x
+
+    printf("%u,%u,%.2f,%.2f\n", raw_x, raw_y, angles[0], angles[1]); // 输出原始 ADC 值和计算的角度，方便调试
 }
+
+void MPU6050_Control(float *angles)
+{
+    angles[0] = MPUToAngle(MM.yaw); // Yaw--y
+    angles[1] = MPUToAngle(MM.pitch); // Pitch--x
+
+    printf("%.3f,%.3f,%.3f\n",MM.roll,MM.pitch,MM.yaw);//欧拉角描述
+}
+void Servo_Movement(float *angles)
+{
+    // 映射为 PWM 占空比
+    uint16_t ccr_yaw = AngleToCCR(angles[0]);
+    uint16_t ccr_pitch = AngleToCCR(angles[1]);
+    // 更新 TIM2 的 CCR 寄存器以控制舵机
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, ccr_yaw);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, ccr_pitch);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -142,6 +214,7 @@ int main(void)
   MX_ADC1_Init();
   MX_USART1_UART_Init();
   MX_TIM2_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   HAL_ADCEx_Calibration_Start(&hadc1); // 校准 ADC
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_value, sizeof(adc_value) / sizeof(adc_value[0])); // 启动 ADC 转换并使用 DMA 存储结果
@@ -150,45 +223,20 @@ int main(void)
   // 初始化舵机到中位 (90度)
   __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, AngleToCCR(90.0f)); // Yaw--y
   __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, AngleToCCR(90.0f)); // Pitch--x
+
+  MPU6050_init(&hi2c1);//初始化MPU6050(你使用的硬件iic)
+  HAL_TIM_Base_Start_IT(&htim2);//定时器中断(确保每次读取的dt稳定)
+  //printf("ID:%x",MPU6050_ID()); // 打印MPU6050的ID用于检车与设备连接是否正常
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    // 保护：防止 DMA 数据未到位导致除以 0
-    if (adc_value[2] > 100) 
-    {
-        actual_vdda = 1.2f * 4095.0f / adc_value[2];
-    }
-    else 
-    {
-        actual_vdda = 3.3f; // 默认值
-    }
+    Joystick_Control(adc_value, angles); // 读取摇杆并更新舵机角度
+    //MPU6050_Control(angles); // 读取MPU6050的姿态角并更新舵机角度
     
-    // 获取原始 ADC 值
-    uint16_t raw_x = adc_value[0];
-    uint16_t raw_y = adc_value[1];
-
-    // 死区处理 (防止中位抖动)
-    if (raw_x > (2048 - JOYSTICK_DEADZONE) && raw_x < (2048 + JOYSTICK_DEADZONE)) {
-        raw_x = 2048; // 强制归中
-    }
-    if (raw_y > (2048 - JOYSTICK_DEADZONE) && raw_y < (2048 + JOYSTICK_DEADZONE)) {
-        raw_y = 2048; // 强制归中
-    }
-    // 转换为角度
-    float angle_yaw = ADCtoAngle(raw_y); // Yaw--y
-    float angle_pitch = ADCtoAngle(raw_x); // Pitch--x
-
-    printf("%u,%u,%.2f,%.2f\n", raw_x, raw_y, angle_yaw, angle_pitch); // 输出原始 ADC 值和计算的角度，方便调试
-
-    // 转换为 CCR 并更新舵机
-    uint16_t ccr_yaw = AngleToCCR(angle_yaw);
-    uint16_t ccr_pitch = AngleToCCR(angle_pitch);
-
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, ccr_yaw);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, ccr_pitch);
+    Servo_Movement(angles);
 
     HAL_Delay(50); // Delay for 1 second before the next reading
     /* USER CODE END WHILE */
