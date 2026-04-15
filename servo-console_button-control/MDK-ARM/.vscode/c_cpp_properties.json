@@ -3,14 +3,14 @@
         {
             "name": "servo-console_button-control",
             "includePath": [
-                "e:\\electronic engineering\\Keil\\servo-console_button-control\\Core\\Inc",
-                "e:\\electronic engineering\\Keil\\servo-console_button-control\\Drivers\\STM32F1xx_HAL_Driver\\Inc",
-                "e:\\electronic engineering\\Keil\\servo-console_button-control\\Drivers\\STM32F1xx_HAL_Driver\\Inc\\Legacy",
-                "e:\\electronic engineering\\Keil\\servo-console_button-control\\Drivers\\CMSIS\\Device\\ST\\STM32F1xx\\Include",
-                "e:\\electronic engineering\\Keil\\servo-console_button-control\\Drivers\\CMSIS\\Include",
-                "e:\\electronic engineering\\Keil\\servo-console_button-control\\MDK-ARM",
-                "e:\\electronic engineering\\Keil\\servo-console_button-control\\Core\\Src",
-                "e:\\electronic engineering\\Keil\\servo-console_button-control\\Drivers\\STM32F1xx_HAL_Driver\\Src"
+                "e:\\electronic engineering\\Keil\\MG90-Two-axis-gimbal-Base-on-HAL\\servo-console_button-control\\Core\\Inc",
+                "e:\\electronic engineering\\Keil\\MG90-Two-axis-gimbal-Base-on-HAL\\servo-console_button-control\\Drivers\\STM32F1xx_HAL_Driver\\Inc",
+                "e:\\electronic engineering\\Keil\\MG90-Two-axis-gimbal-Base-on-HAL\\servo-console_button-control\\Drivers\\STM32F1xx_HAL_Driver\\Inc\\Legacy",
+                "e:\\electronic engineering\\Keil\\MG90-Two-axis-gimbal-Base-on-HAL\\servo-console_button-control\\Drivers\\CMSIS\\Device\\ST\\STM32F1xx\\Include",
+                "e:\\electronic engineering\\Keil\\MG90-Two-axis-gimbal-Base-on-HAL\\servo-console_button-control\\Drivers\\CMSIS\\Include",
+                "e:\\electronic engineering\\Keil\\MG90-Two-axis-gimbal-Base-on-HAL\\servo-console_button-control\\MDK-ARM",
+                "e:\\electronic engineering\\Keil\\MG90-Two-axis-gimbal-Base-on-HAL\\servo-console_button-control\\Core\\Src",
+                "e:\\electronic engineering\\Keil\\MG90-Two-axis-gimbal-Base-on-HAL\\servo-console_button-control\\Drivers\\STM32F1xx_HAL_Driver\\Src"
             ],
             "defines": [
                 "USE_HAL_DRIVER",
