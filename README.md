@@ -76,3 +76,4 @@
 3. **中断优先级**：建议将定时器中断优先级设为中等，以防阻塞 I2C 通信。
 
 ---
+PS：mpu6050的驱动使用benjiamin的驱动库https://gitcode.com/Benjamin123456/share
