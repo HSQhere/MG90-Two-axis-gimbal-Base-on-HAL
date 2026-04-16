@@ -754,6 +754,16 @@
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32f1xx_hal_msp.c</FilePath>
             </File>
+            <File>
+              <FileName>controler.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\controler.c</FilePath>
+            </File>
+            <File>
+              <FileName>algorithm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\algorithm.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

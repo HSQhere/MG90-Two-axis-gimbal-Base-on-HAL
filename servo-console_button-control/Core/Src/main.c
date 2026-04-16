@@ -28,6 +28,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "MPU6050.h"
+#include "controler.h"
+#include "algorithm.h"
 #include <stdio.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -51,6 +53,7 @@
 
 /* USER CODE BEGIN PV */
 MPU6050 MM;
+volatile int work_mode = 0; // 0: 摇杆控制模式 1: mpu控制模式
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -85,99 +88,10 @@ int fputc(int ch, FILE *f)
     
     return ch;
 }
-// --- 舵机控制参数定义 ---
-// 假设 TIM2 的计数频率为 1MHz (Prescaler=71, Clock=72MHz -> 1 tick = 1us)
-// 如果不确定，请检查 CubeMX 中 TIM2 的 Prescaler 设置
-#define SERVO_MIN_US  500   // 0度对应的脉宽 (0.5ms)
-#define SERVO_MAX_US  2500  // 180度对应的脉宽 (2.5ms)
-#define SERVO_MID_US  1500  // 90度对应的脉宽 (1.5ms)
-#define SERVO_MAX_ANGLE 180.0f // 舵机最大角度
 
-// 死区范围 (ADC值 0-4095, 中位2048)
-#define JOYSTICK_DEADZONE 150
 uint16_t adc_value[3]; // 存储 ADC 转换结果的数组
 float angles[2]; // 存储计算出的角度
-float actual_vdda = 3.3f; // 实际电压值，初始为默认值
 
-float ADCToAngle(uint16_t adc_angle)
-{
-    return adc_angle * 180.0f / 4095.0f * (actual_vdda / 3.3f); // 用算出来的实际电压去计算角度
-}
-
-// 输入 MPU6050 的姿态角，输出角度
-float MPUToAngle(float mpu_angle)
-{
-    // 补偿计算：以 90 度为中位进行反向补偿
-    // 假设 MPU 水平时角度为 0，那么舵机应处于 90 度（中位）
-    float target_angle = 90.0f - mpu_angle; 
-
-    // 限幅保护：防止舵机撞到机械限位（建议保留 10-170 度的安全区间）
-    if (target_angle < 10.0f) target_angle = 10.0f;
-    if (target_angle > 170.0f) target_angle = 170.0f;
-
-    return target_angle;
-}
-
-uint16_t AngleToCCR(float angle)
-{
-    // 限制角度范围
-    if (angle < 0) angle = 0;
-    if (angle > SERVO_MAX_ANGLE) angle = SERVO_MAX_ANGLE;
-
-    // 线性映射: CCR = Min + (Angle / MaxAngle) * (Max - Min)
-    float pulse_us = SERVO_MIN_US + (angle / SERVO_MAX_ANGLE) * (SERVO_MAX_US - SERVO_MIN_US);
-    
-    // 假设 TIM2 计数频率为 1MHz (1us/tick)，直接返回 us 值
-    // 如果你的 TIM2 频率不同，请在此处乘以系数。例如 2MHz 则除以 2。
-    return (uint16_t)pulse_us;
-}
-
-void Joystick_Control(uint16_t *adc_value, float *angles)
-{
-    
-    // 1. 保护：防止 DMA 数据未到位导致除以 0 (使用内部 1.2V 参考通道)
-    // 假设 adc_value[2] 是内部参考电压通道
-    if (adc_value[2] > 100) 
-    {
-        actual_vdda = 1.2f * 4095.0f / (float)adc_value[2];
-    }
-    else 
-    {
-        actual_vdda = 3.3f; // 默认值
-    }
-
-    // 2. 获取原始 ADC 值
-    uint16_t raw_x = adc_value[0];
-    uint16_t raw_y = adc_value[1];
-
-    // 3. 死区处理 (防止中位抖动)
-    if (raw_x > (2048 - JOYSTICK_DEADZONE) && raw_x < (2048 + JOYSTICK_DEADZONE)) raw_x = 2048;
-    if (raw_y > (2048 - JOYSTICK_DEADZONE) && raw_y < (2048 + JOYSTICK_DEADZONE)) raw_y = 2048;
-
-    // 4. 转换为角度 (0-180度)
-    //0是yaw，1是pitch
-    angles[0] = ADCToAngle(raw_y); // Yaw--y
-    angles[1] = ADCToAngle(raw_x); // Pitch--x
-
-    printf("%u,%u,%.2f,%.2f\n", raw_x, raw_y, angles[0], angles[1]); // 输出原始 ADC 值和计算的角度，方便调试
-}
-
-void MPU6050_Control(float *angles)
-{
-    angles[0] = MPUToAngle(MM.yaw); // Yaw--y
-    angles[1] = MPUToAngle(MM.pitch); // Pitch--x
-
-    printf("%.3f,%.3f,%.3f\n",MM.roll,MM.pitch,MM.yaw);//欧拉角描述
-}
-void Servo_Movement(float *angles)
-{
-    // 映射为 PWM 占空比
-    uint16_t ccr_yaw = AngleToCCR(angles[0]);
-    uint16_t ccr_pitch = AngleToCCR(angles[1]);
-    // 更新 TIM2 的 CCR 寄存器以控制舵机
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, ccr_yaw);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, ccr_pitch);
-}
 
 /* USER CODE END 0 */
 
@@ -233,12 +147,15 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    Joystick_Control(adc_value, angles); // 读取摇杆并更新舵机角度
-    //MPU6050_Control(angles); // 读取MPU6050的姿态角并更新舵机角度
-    
-    Servo_Movement(angles);
+    if (work_mode == 0) {
+            Joystick_Control(adc_value, angles);
+        } else {
+            MPU6050_Control(angles);
+        }
 
-    HAL_Delay(50); // Delay for 1 second before the next reading
+        Servo_Movement(angles); // 统一更新舵机
+
+        HAL_Delay(20); // 20ms 更新一次舵机，符合一般舵机的刷新率要求
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -293,7 +210,10 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  Mode_Switch_Handler(GPIO_Pin); // 把中断逻辑也分出去
+}
 /* USER CODE END 4 */
 
 /**
